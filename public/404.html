@@ -4,14 +4,16 @@
     <meta charset="utf-8">
     <title>Redirecting...</title>
     <script>
-      // Single Page App fallback for GitHub Pages
-      var pathSegments = window.location.pathname.split('/').filter(Boolean);
-      // If repo name is the first segment (e.g., Marketing-form), keep it in the base URL
-      var repo = pathSegments.length > 0 ? '/' + pathSegments[0] : '';
-      var route = pathSegments.slice(1).join('/');
-      window.location.replace(
-        window.location.origin + repo + '/' + (route ? '#' + route : '') + window.location.search
-      );
+      var path = window.location.pathname;
+      // Do not redirect asset requests to avoid loops
+      if (!/\.(js|css|json|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i.test(path)) {
+        var segments = path.split('/').filter(Boolean);
+        var repo = segments.length > 0 ? '/' + segments[0] : '';
+        var route = segments.slice(1).join('/');
+        window.location.replace(
+          window.location.origin + repo + '/' + (route ? '#' + route : '') + window.location.search
+        );
+      }
     </script>
   </head>
   <body>
