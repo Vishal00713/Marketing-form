@@ -8,9 +8,11 @@ import {
   Package, 
   AlertCircle,
   Truck,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 import { PrintOrder, OrderStatus } from '../../types/form';
+import { fetchOrderByIdFromFirestore } from '../../services/firebase';
 
 interface OrderTrackerModalProps {
   isOpen: boolean;
@@ -35,6 +37,8 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
   initialOrderId = ''
 }) => {
   const [searchTerm, setSearchTerm] = useState(initialOrderId);
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [searchNotFound, setSearchNotFound] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<PrintOrder | null>(() => {
     if (initialOrderId) {
       return orders.find(o => o.id.toLowerCase() === initialOrderId.toLowerCase()) || null;
@@ -44,17 +48,43 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    const term = searchTerm.trim().toLowerCase();
+    const term = searchTerm.trim();
     if (!term) return;
 
+    setSearchNotFound(false);
+    const termLower = term.toLowerCase();
+
+    // 1. Try finding in local orders array
     const found = orders.find(
-      o => o.id.toLowerCase() === term || 
-        (o.requester?.email && o.requester.email.toLowerCase() === term) ||
-        (o.formData?.submitterEmail && o.formData.submitterEmail.toLowerCase() === term)
+      o => o.id.toLowerCase() === termLower || 
+        (o.requester?.email && o.requester.email.toLowerCase() === termLower) ||
+        (o.formData?.submitterEmail && o.formData.submitterEmail.toLowerCase() === termLower)
     );
-    setSelectedOrder(found || null);
+
+    if (found) {
+      setSelectedOrder(found);
+      return;
+    }
+
+    // 2. Query Firestore directly by Order ID
+    setIsSearchingOnline(true);
+    try {
+      const remoteOrder = await fetchOrderByIdFromFirestore(term);
+      if (remoteOrder) {
+        setSelectedOrder(remoteOrder);
+      } else {
+        setSelectedOrder(null);
+        setSearchNotFound(true);
+      }
+    } catch (err) {
+      console.warn('Firestore order search notice:', err);
+      setSelectedOrder(null);
+      setSearchNotFound(true);
+    } finally {
+      setIsSearchingOnline(false);
+    }
   };
 
   const getStatusIndex = (currentStatus: OrderStatus) => {
@@ -104,11 +134,26 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
             </div>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-[#673ab7] hover:bg-[#5a2e9d] text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+              disabled={isSearchingOnline}
+              className="px-5 py-2.5 bg-[#673ab7] hover:bg-[#5a2e9d] text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center justify-center min-w-[90px] disabled:opacity-70"
             >
-              Search
+              {isSearchingOnline ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  Searching
+                </>
+              ) : (
+                'Search'
+              )}
             </button>
           </form>
+
+          {searchNotFound && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>No order found with ID or email <strong>"{searchTerm}"</strong> in local records or Firebase database.</span>
+            </div>
+          )}
 
           {selectedOrder ? (
             <div className="space-y-6">

@@ -14,6 +14,14 @@ import {
   googleSignIn, 
   logout 
 } from './services/firebaseAuth';
+import { 
+  testFirestoreConnection, 
+  saveOrderToFirestore, 
+  saveAdminSettingsToFirestore, 
+  fetchAdminSettingsFromFirestore, 
+  fetchOrdersFromFirestore, 
+  subscribeToOrders 
+} from './services/firebase';
 import { PrintOrder, FormFieldConfig, AdminSettings } from './types/form';
 import { Header } from './components/Header';
 import { GoogleFormView } from './components/Form/GoogleFormView';
@@ -91,6 +99,34 @@ export default function App() {
     }
   }, [isDark]);
 
+  // Validate connection to Firestore on boot (per Firebase skill directive)
+  useEffect(() => {
+    testFirestoreConnection();
+
+    // Fetch cloud-persisted admin settings
+    fetchAdminSettingsFromFirestore()
+      .then((remote) => {
+        if (remote) {
+          setAdminSettings((prev) => ({ ...prev, ...remote }));
+        }
+      })
+      .catch((err) => {
+        console.log('Firebase settings sync info:', err);
+      });
+
+    // Fetch cloud-persisted orders
+    fetchOrdersFromFirestore()
+      .then((remoteOrders) => {
+        if (remoteOrders && remoteOrders.length > 0) {
+          setOrders(remoteOrders);
+          saveOrders(remoteOrders);
+        }
+      })
+      .catch((err) => {
+        console.log('Firebase orders sync info:', err);
+      });
+  }, []);
+
   // Initialize Firebase Auth state listener
   useEffect(() => {
     const unsubscribe = initFirebaseAuthListener((user) => {
@@ -100,6 +136,23 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Real-time Firestore sync when administrator is active
+  useEffect(() => {
+    if (authUser) {
+      try {
+        const unsubscribe = subscribeToOrders((cloudOrders) => {
+          if (cloudOrders && cloudOrders.length > 0) {
+            setOrders(cloudOrders);
+            saveOrders(cloudOrders);
+          }
+        });
+        return () => unsubscribe();
+      } catch (err) {
+        console.log('Subscription notice:', err);
+      }
+    }
+  }, [authUser]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -121,6 +174,14 @@ export default function App() {
     setCurrentView('confirmed');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
+    // Persist immediately to Firebase Firestore
+    try {
+      await saveOrderToFirestore(newOrder);
+      console.log('Order successfully saved to Firebase Firestore');
+    } catch (err) {
+      console.warn('Firebase order persist notice:', err);
+    }
+
     // Centralized Google Sheet real-time append if configured
     if (adminSettings.autoSyncToSheet && adminSettings.spreadsheetId && accessToken) {
       try {
@@ -132,9 +193,16 @@ export default function App() {
     }
   };
 
-  const handleOrdersUpdated = (updated: PrintOrder[]) => {
+  const handleOrdersUpdated = async (updated: PrintOrder[]) => {
     setOrders(updated);
     saveOrders(updated);
+    for (const order of updated) {
+      try {
+        await saveOrderToFirestore(order);
+      } catch {
+        // Handled silently
+      }
+    }
   };
 
   const handleFormFieldsUpdated = (updated: FormFieldConfig[]) => {
@@ -142,9 +210,14 @@ export default function App() {
     saveFormFields(updated);
   };
 
-  const handleSettingsUpdated = (updated: AdminSettings) => {
+  const handleSettingsUpdated = async (updated: AdminSettings) => {
     setAdminSettings(updated);
     saveAdminSettings(updated);
+    try {
+      await saveAdminSettingsToFirestore(updated);
+    } catch (err) {
+      console.warn('Firebase settings update notice:', err);
+    }
   };
 
   const handleOpenTracker = (orderId?: string) => {
