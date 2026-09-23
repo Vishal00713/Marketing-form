@@ -155,9 +155,11 @@ export default function App() {
   const navigateToView = (view: 'form' | 'admin') => {
     setCurrentView(view);
     if (view === 'admin') {
-      window.history.pushState({}, '', '/admin');
+      window.location.hash = 'admin';
     } else {
-      window.history.pushState({}, '', '/');
+      if (window.location.hash) {
+        window.history.pushState('', document.title, window.location.pathname + window.location.search);
+      }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
